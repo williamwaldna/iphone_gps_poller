@@ -84,3 +84,8 @@ async def volvo_location():
 
 # Serve static files (the dashboard HTML)
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
