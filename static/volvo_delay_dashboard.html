@@ -282,15 +282,40 @@ function startGPS() {
   if (!navigator.geolocation) { log('GPS not available', 'err'); return; }
   watchId = navigator.geolocation.watchPosition(
     pos => {
-      myPos = { lat: pos.coords.latitude, lon: pos.coords.longitude, ts: new Date() };
+      myPos = {
+        lat: pos.coords.latitude,
+        lon: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        ts: new Date()
+      };
       gpsMarker.setLatLng([myPos.lat, myPos.lon]);
       document.getElementById('statGps').textContent = formatTime(myPos.ts);
       document.getElementById('statusDot').className = 'status-dot active';
       updateLine();
+      postIPhoneLocation(myPos);
     },
     err => log('GPS error: ' + err.message, 'err'),
     { enableHighAccuracy: true, maximumAge: 2000 }
   );
+}
+
+// ── POST iPhone location to backend ───────────────────────
+async function postIPhoneLocation(pos) {
+  try {
+    await fetch('/api/iphone-location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        latitude:    pos.lat,
+        longitude:   pos.lon,
+        accuracy:    pos.accuracy || null,
+        recorded_at: pos.ts.toISOString()
+      })
+    });
+  } catch (e) {
+    // Silent fail — don't spam the log for every GPS update
+    console.warn('Failed to post iPhone location:', e.message);
+  }
 }
 
 // ── Fetch Volvo location from backend ─────────────────────
