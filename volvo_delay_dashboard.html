@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Volvo Delay Dashboard</title>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #0d0f14;
+      --surface: #161a23;
+      --border: #232838;
+      --volvo-blue: #1c6bff;
+      --gps-green: #00e87a;
+      --warn: #ffb800;
+      --text: #e8eaf0;
+      --muted: #5a6075;
+      --mono: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .volvo-mark {
+      width: 32px; height: 32px;
+      border: 2px solid var(--volvo-blue);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; color: var(--volvo-blue);
+    }
+
+    header h1 { font-size: 15px; font-weight: 600; }
+    header .subtitle { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+    .status-dot {
+      margin-left: auto;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .status-dot.active { background: var(--gps-green); box-shadow: 0 0 6px var(--gps-green); }
+    .status-dot.warn   { background: var(--warn); }
+
+    .delay-hero {
+      padding: 24px 20px 20px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .delay-label {
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .delay-value {
+      font-family: var(--mono);
+      font-size: 56px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--gps-green);
+      transition: color 0.4s;
+    }
+    .delay-value.warn { color: var(--warn); }
+    .delay-value.bad  { color: #ff4d4d; }
+    .delay-unit { font-size: 16px; color: var(--muted); margin-left: 4px; }
+
+    .delay-sub { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat {
+      padding: 14px 20px;
+      border-right: 1px solid var(--border);
+    }
+    .stat:last-child { border-right: none; }
+
+    .stat-label {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .stat-value { font-family: var(--mono); font-size: 18px; font-weight: 600; }
+    .stat-value.blue  { color: var(--volvo-blue); }
+    .stat-value.green { color: var(--gps-green); }
+
+    #map { flex: 1; min-height: 300px; }
+
+    .controls {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 16px 20px;
+    }
+
+    .btn-row { display: flex; gap: 8px; }
+
+    button {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:active { opacity: 0.75; }
+
+    .btn-primary   { background: var(--volvo-blue); color: #fff; }
+    .btn-secondary { background: var(--border); color: var(--text); }
+
+    .interval-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .interval-row input {
+      width: 56px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 8px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      outline: none;
+    }
+    .interval-row input:focus { border-color: var(--volvo-blue); }
+
+    .log {
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      padding: 12px 20px;
+      max-height: 130px;
+      overflow-y: auto;
+    }
+
+    .log-entry {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      padding: 2px 0;
+      border-bottom: 1px solid #1a1e28;
+    }
+    .log-entry .ts  { color: #3a4055; margin-right: 8px; }
+    .log-entry.ok   .msg { color: var(--gps-green); }
+    .log-entry.warn .msg { color: var(--warn); }
+    .log-entry.err  .msg { color: #ff4d4d; }
+
+    .legend {
+      display: flex;
+      gap: 16px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+    .legend-dot  { width: 10px; height: 10px; border-radius: 50%; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="volvo-mark">V</div>
+  <div>
+    <div class="subtitle">XC40 · Delay Monitor</div>
+  </div>
+  <div class="status-dot" id="statusDot"></div>
+</header>
+
+<div class="delay-hero">
+  <div class="delay-label">Volvo API Delay</div>
+  <div class="delay-value" id="delayValue">—</div>
+  <div class="delay-sub" id="delaySub">Waiting for data…</div>
+</div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Your GPS</div>
+    <div class="stat-value green" id="statGps">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Volvo Last Update</div>
+    <div class="stat-value blue" id="statVolvo">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Distance Apart</div>
+    <div class="stat-value" id="statDist">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Polls</div>
+    <div class="stat-value" id="statPolls">0</div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--gps-green)"></div> Your position
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--volvo-blue)"></div> Volvo last reported
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div class="controls">
+  <div class="interval-row">
+    Poll every
+    <input id="cfgInterval" type="number" value="15" min="5" max="120" />
+    seconds
+  </div>
+  <div class="btn-row">
+    <button class="btn-primary"   onclick="startTracking()">Start</button>
+    <button class="btn-secondary" onclick="stopTracking()">Stop</button>
+  </div>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+let map, gpsMarker, volvoMarker, lineBetween;
+let pollCount = 0;
+let intervalId = null;
+let watchId    = null;
+let myPos      = null;
+
+// ── Map ───────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map').setView([59.33, 18.06], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors', maxZoom: 19
+  }).addTo(map);
+
+  gpsMarker = L.circleMarker([0,0], {
+    radius: 10, fillColor: '#00e87a', color: '#fff', weight: 2, fillOpacity: 0.95
+  }).addTo(map).bindPopup('Your position');
+
+  volvoMarker = L.circleMarker([0,0], {
+    radius: 10, fillColor: '#1c6bff', color: '#fff', weight: 2, fillOpacity: 0.95
+  }).addTo(map).bindPopup('Volvo last reported');
+
+  lineBetween = L.polyline([], {
+    color: '#ffffff', weight: 1, dashArray: '4 6', opacity: 0.3
+  }).addTo(map);
+}
+
+// ── GPS ───────────────────────────────────────────────────
+function startGPS() {
+  if (!navigator.geolocation) { log('GPS not available', 'err'); return; }
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      myPos = { lat: pos.coords.latitude, lon: pos.coords.longitude, ts: new Date() };
+      gpsMarker.setLatLng([myPos.lat, myPos.lon]);
+      document.getElementById('statGps').textContent = formatTime(myPos.ts);
+      document.getElementById('statusDot').className = 'status-dot active';
+      updateLine();
+    },
+    err => log('GPS error: ' + err.message, 'err'),
+    { enableHighAccuracy: true, maximumAge: 2000 }
+  );
+}
+
+// ── Fetch Volvo location from backend ─────────────────────
+async function fetchVolvoLocation() {
+  try {
+    const res = await fetch('/api/volvo-location');
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || res.statusText);
+    }
+    const data = await res.json();
+    return {
+      lat: data.latitude,
+      lon: data.longitude,
+      ts:  new Date(data.recorded_at)
+    };
+  } catch (e) {
+    log('API error: ' + e.message, 'err');
+    return null;
+  }
+}
+
+// ── Update UI ─────────────────────────────────────────────
+function updateDelay(volvoPos) {
+  if (!myPos || !volvoPos) return;
+
+  const delaySec = Math.round((myPos.ts - volvoPos.ts) / 1000);
+  const el = document.getElementById('delayValue');
+
+  el.innerHTML = delaySec >= 0
+    ? `${delaySec}<span class="delay-unit">s</span>`
+    : `<span style="font-size:24px">ahead?</span>`;
+
+  el.className = 'delay-value' +
+    (delaySec > 300 ? ' bad' : delaySec > 60 ? ' warn' : '');
+
+  const mins = Math.floor(Math.abs(delaySec) / 60);
+  const secs = Math.abs(delaySec) % 60;
+  document.getElementById('delaySub').textContent = delaySec >= 60
+    ? `${mins}m ${secs}s behind real position`
+    : `${delaySec}s behind real position`;
+
+  volvoMarker.setLatLng([volvoPos.lat, volvoPos.lon]);
+  document.getElementById('statVolvo').textContent = formatTime(volvoPos.ts);
+
+  const dist = haversine(myPos.lat, myPos.lon, volvoPos.lat, volvoPos.lon);
+  document.getElementById('statDist').textContent =
+    dist < 1000 ? `${Math.round(dist)}m` : `${(dist/1000).toFixed(2)}km`;
+
+  updateLine();
+
+  map.fitBounds([
+    [myPos.lat, myPos.lon],
+    [volvoPos.lat, volvoPos.lon]
+  ], { padding: [40, 40], maxZoom: 16 });
+
+  pollCount++;
+  document.getElementById('statPolls').textContent = pollCount;
+  log(
+    `Delay: ${delaySec}s · dist: ${dist < 1000 ? Math.round(dist)+'m' : (dist/1000).toFixed(2)+'km'}`,
+    delaySec > 300 ? 'err' : delaySec > 60 ? 'warn' : 'ok'
+  );
+}
+
+function updateLine() {
+  if (!myPos) return;
+  const v = volvoMarker.getLatLng();
+  if (v.lat === 0 && v.lng === 0) return;
+  lineBetween.setLatLngs([[myPos.lat, myPos.lon], [v.lat, v.lng]]);
+}
+
+// ── Controls ──────────────────────────────────────────────
+async function startTracking() {
+  stopTracking();
+  log('Starting…', 'ok');
+  startGPS();
+
+  const intervalSec = parseInt(document.getElementById('cfgInterval').value) || 15;
+
+  async function poll() {
+    const volvo = await fetchVolvoLocation();
+    if (volvo) updateDelay(volvo);
+  }
+
+  await poll();
+  intervalId = setInterval(poll, intervalSec * 1000);
+}
+
+function stopTracking() {
+  if (intervalId) { clearInterval(intervalId); intervalId = null; }
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  document.getElementById('statusDot').className = 'status-dot';
+  log('Stopped', 'warn');
+}
+
+// ── Helpers ───────────────────────────────────────────────
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLon = (lon2-lon1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 +
+    Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function formatTime(d) {
+  return d.toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function log(msg, type='ok') {
+  const el = document.getElementById('log');
+  const entry = document.createElement('div');
+  entry.className = `log-entry ${type}`;
+  const now = new Date().toLocaleTimeString('sv-SE', { hour12: false });
+  entry.innerHTML = `<span class="ts">${now}</span><span class="msg">${msg}</span>`;
+  el.prepend(entry);
+  if (el.children.length > 50) el.lastChild.remove();
+}
+
+initMap();
+log('Ready — press Start', 'ok');
+</script>
+</body>
+</html>
